@@ -1,0 +1,51 @@
+name: Push
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/libs/Karabiner-DriverKit-VirtualHIDDevice/version.json'
+      - 'src/libs/Karabiner-DriverKit-VirtualHIDDevice/elements-version.json'
+
+jobs:
+  update_readme:
+    runs-on: ubuntu-slim
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Update README
+        id: update_readme
+        run: |
+          ./.github/scripts/update-readme.py
+          if git diff --quiet; then
+            echo is_worktree_changed=NO
+          else
+            echo is_worktree_changed=YES
+          fi >> "$GITHUB_OUTPUT"
+
+      - name: Create PR if README is changed
+        if: steps.update_readme.outputs.is_worktree_changed == 'YES'
+        # email and name via https://api.github.com/users/github-actions%5Bbot%5D
+        # See https://github.com/actions/checkout?tab=readme-ov-file#push-a-commit-using-the-built-in-token
+        run: |
+          COMMIT_BRANCH="$GITHUB_JOB/$GITHUB_RUN_ID"
+          COMMIT_USER="github-actions[bot]"
+          COMMIT_UID="$(gh api -q ".id" "users/$COMMIT_USER")"
+          if [ -z "$COMMIT_UID" ]; then
+            echo "::error::Failed looking up GitHub ID for user <$COMMIT_USER>"
+            exit 1
+          fi
+          git config user.email "$COMMIT_UID+$COMMIT_USER@users.noreply.github.com"
+          git config user.name "$COMMIT_USER"
+          # Comment out `git switch` and `gh pr create` and set COMMIT_BRANCH="$GITHUB_REF"
+          # to push a commit directly to the branch that triggered this job (usually main)
+          git switch --create "$COMMIT_BRANCH"
+          git commit --all --message "Update variables in README"
+          git push --set-upstream origin "$COMMIT_BRANCH"
+          gh pr create --fill
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
